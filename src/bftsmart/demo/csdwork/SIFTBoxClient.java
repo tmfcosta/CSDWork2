@@ -13,6 +13,7 @@ import java.util.Timer;
 import java.util.TimerTask;
 
 import bftsmart.demo.csdwork.RequestType;
+
 //This is the class which sends requests to replicas
 import bftsmart.tom.ServiceProxy;
 
@@ -22,7 +23,7 @@ public class SIFTBoxClient {
 	private static int userID;
 	private static String[] myDirectories;
 	private static String allPath;
-	private static String myPath = "/home/osboxes/SIFTBoxMyClientBox";
+	private static String myPath = "";
 
 	public SIFTBoxClient(int clientId) {
 		clientProxy = new ServiceProxy(clientId);
@@ -35,9 +36,16 @@ public class SIFTBoxClient {
 		myDirectories = allPath.split(",");
 	}
 
+	/**
+	 * Main
+	 * HOW TO USE Use: java csd.aula2.rmi.SIFTClient -u <userdId> -a
+	 * <Path of the local dirs> -s <list of dirs>
+	 * @param args
+	 */
 	public static void main(String[] args) {
 		userID = Integer.parseInt(args[1]);
-		//String serverHost = args[3];
+		myPath = args[3];
+		myPath = "/home/osboxes/SIFTBoxMyClientBox";
 		allPath = args[5];
 
 		new SIFTBoxClient(userID);
@@ -76,6 +84,7 @@ public class SIFTBoxClient {
 		for (String a : myDirectories) {
 			File f = new File(myPath + "/" + a);
 			if (!f.exists() || !f.isDirectory()) {
+				System.out.println("Making dir :"+a+" on client.");
 				f.mkdir();
 			}
 			checkDirectoryOnServer(a);
@@ -95,7 +104,7 @@ public class SIFTBoxClient {
 			dos.writeUTF(dir);
 			dos.writeInt(userID);
 			clientProxy.invokeOrdered(out.toByteArray());
-			System.out.println("Directory Created on Server: "+ dir);
+			System.out.println("Directory Created or Checked on Server: "+ dir);
 			// MAYBE DEPOIS METER AQUI UMA ANSWER
 
 		} catch (IOException e) {
@@ -119,9 +128,10 @@ public class SIFTBoxClient {
 		File[] tempClientSide;
 
 		for (String a : myDirectories) {
+			System.out.println("CHECKING FILES ON: "+a);
 			File f = new File(myPath + "/" + a);
 			tempClientSide = f.listFiles();
-
+				
 			// Go Fetch the files from the server
 			byte[] reply = fetchFilesFromServer(a);
 			if (reply != null) {
@@ -132,10 +142,14 @@ public class SIFTBoxClient {
 				int size = dis.readInt();
 				int count = 0;
 				File[] tempServerSide = new File[size];
+				System.out.println("Number of files in: "+a+"equals on server: "+size+" and on client: "+tempClientSide.length);
+				System.out.println("Number of files in: "+a+ " equals: "+size);
 
 				for (int i = 0; i < size; i++) {
-					String pathname = dis.readUTF();
-					long fileSize = dis.readInt();
+					String name = dis.readUTF();
+					long fileSize = dis.readLong();
+					System.out.println("File: "+name);
+					System.out.println("File size: "+fileSize);
 					byte[] data = new byte[(int) fileSize];
 					int countData = 0;
 
@@ -143,17 +157,16 @@ public class SIFTBoxClient {
 						data[countData] = dis.readByte();
 						countData++;
 					}
-					File file = new File(pathname);
+					File file = new File(name);
 					FileOutputStream fileOutputStream = new FileOutputStream(file);
 					fileOutputStream.write(data);
 					fileOutputStream.close();
 
-					tempClientSide[count] = file;
+					tempServerSide[count] = file;
 					count++;
 				}
-
+				
 				compareFilesWithDatesAndUploadOrDownload(tempServerSide, tempClientSide, a);
-
 			}
 		}
 	}
@@ -182,6 +195,7 @@ public class SIFTBoxClient {
 					clientFile = tempClientSide[j];
 					if (clientFile.getName().equalsIgnoreCase(serverFile.getName())) {
 						found = true;
+						System.out.println("File: "+clientFile.getName()+" SERVER: "+ serverFile.lastModified()+"CLIENT: "+clientFile.lastModified());
 						if (clientFile.lastModified() > serverFile.lastModified()) {
 							// server.put(a, clientFile, userID);
 							createFileServer(a, clientFile, userID);
@@ -190,7 +204,7 @@ public class SIFTBoxClient {
 						}
 					}
 					if (!found) {
-						System.out.println("NOT FOUND");
+						System.out.println("NOT FOUND CREATING ON CLIENT: "+a+" "+serverFile.getName());
 						createFileClient(a, serverFile);
 					}
 				}
@@ -203,6 +217,7 @@ public class SIFTBoxClient {
 					serverFile = tempServerSide[j];
 					if (clientFile.getName().equalsIgnoreCase(serverFile.getName())) {
 						found = true;
+						System.out.println("File: "+clientFile.getName()+" SERVER: "+ serverFile.lastModified()+"CLIENT: "+clientFile.lastModified());
 						if (clientFile.lastModified() > serverFile.lastModified()) {
 							createFileServer(a, clientFile, userID);
 						} else if (clientFile.lastModified() < serverFile.lastModified()) {
@@ -211,7 +226,7 @@ public class SIFTBoxClient {
 					}
 				}
 				if (!found) {
-					System.out.println("here");
+					System.out.println("NOT FOUND CREATING ON CLIENT: "+a+" "+clientFile.getName());
 					createFileServer(a, clientFile, userID);
 				}
 			}
@@ -249,7 +264,7 @@ public class SIFTBoxClient {
 			fileinput.close();
 
 			dos.write(file);
-
+			System.out.println("Invoking create file "+clientFile.getName()+" on server.");
 			clientProxy.invokeOrdered(out.toByteArray());
 			//
 		} catch (IOException ioe) {
@@ -274,7 +289,7 @@ public class SIFTBoxClient {
 			file.delete();
 		}
 		System.out.println(file.createNewFile());
-		System.out.println(data.length);
+		System.out.println("Creating file: "+serverFile.getName()+ " on client.");
 		FileOutputStream output = new FileOutputStream(file);
 		output.write(data);
 		output.close();
@@ -305,9 +320,9 @@ public class SIFTBoxClient {
 			dos.writeUTF(a);
 			dos.writeInt(userID);
 
-			byte[] reply = clientProxy.invokeUnordered(out.toByteArray());
-			System.out.println("DONE Fetching Files From Server");
-			System.out.println(new String(reply));
+			byte[] reply = clientProxy.invokeOrdered(out.toByteArray());
+			System.out.println(reply);
+			System.out.println("DONE Fetching Files From Server");	
 			return reply;
 		} catch (IOException e) {
 			System.out.println("ERROR Fetching Files From Server");
@@ -315,4 +330,6 @@ public class SIFTBoxClient {
 		}
 
 	}
+	
+	
 }
