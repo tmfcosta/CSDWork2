@@ -1,7 +1,11 @@
 package bftsmart.demo.csdwork2;
 
 import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.Console;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -13,14 +17,20 @@ import java.security.MessageDigest;
 import java.util.Timer;
 import java.util.TimerTask;
 
+import bftsmart.demo.csdwork.RequestType;
+
 public class SIFTClient {
 
-	private static String userID;
+	private static int userID;
 	private static IServer server;
 	private static String[] myDirectories;
 	private static String allPath;
 	private static String myPath = "/home/osboxes/SIFTBoxMyClientBox";
+	private static String username;
 
+	/**
+	 * Spliting the dirs
+	 */
 	private static void setMyDirectories() {
 		myDirectories = allPath.split(",");
 	}
@@ -60,14 +70,16 @@ public class SIFTClient {
 			System.out.println(args[2]);
 			System.out.println(args[4]);
 			System.out.println(args[6]);
-			System.out.println("Use: java SIFTClient -u <userId> -a <serverAddress:port> -s <list of dirs> -user <username>");
+			System.out.println("Use: java SIFTClient -u <userID> -a <serverAddress:port> -s <list of dirs> -user <username>");
 			System.exit(0);
 		}
 
-		userID = args[1];
+		userID = Integer.parseInt(args[1]);
 		String serverHost = args[3];
+		//Falta aqui meter a escolhe de um path inicial
+		myPath = "/home/osboxes/SIFTBoxMyClientBox";
 		allPath = args[5];
-		String username = args[7];
+		username = args[6];
 		
 		System.out.println(userID);
 		System.out.println(serverHost);
@@ -98,7 +110,7 @@ public class SIFTClient {
 				BigInteger digestClient = new BigInteger(1,digest.digest());
 				
 				boolean isAuth = false;
-				isAuth = server.authenticate(username, digestClient);
+				isAuth = server.authenticate(username, digestClient, username);
 				
 				if(isAuth){
 					System.out.println("Logged in sucessfully");
@@ -122,8 +134,9 @@ public class SIFTClient {
 			Timer timer = new Timer();
 
 			// split the directories path
-
+			System.out.println("Setting directories");
 			setMyDirectories();
+			System.out.println("DONE Setting directories");
 			try {
 				// check locally and on server if the directories exists
 				System.out.println("Checking directories");
@@ -159,11 +172,34 @@ public class SIFTClient {
 	 */
 	private static void checkDirectories() throws RemoteException {
 		for (String a : myDirectories) {
-			server.putDirectory(a, userID);
 			File f = new File(myPath + "/" + a);
 			if (!f.exists() || !f.isDirectory()) {
+				System.out.println("Making dir :"+a+" on client.");
 				f.mkdir();
 			}
+			checkDirectoryOnServer(a);
+		}
+	}
+	
+	/**
+	 * Check the directory on the ServerSide, if it doesnt exist it create it
+	 * @param dir
+	 */
+	private static void checkDirectoryOnServer(String dir) {
+		try {
+			ByteArrayOutputStream out = new ByteArrayOutputStream();
+			DataOutputStream dos = new DataOutputStream(out);
+
+			dos.writeInt(RequestType.PUT_DIRECTORY);
+			dos.writeUTF(dir);
+			dos.writeInt(userID);
+			byte[] request = out.toByteArray();
+			server.checkDirectoryOnServer(request, username);
+			System.out.println("Directory Created or Checked on Server: "+ dir);
+			// MAYBE DEPOIS METER AQUI UMA ANSWER
+
+		} catch (IOException e) {
+
 		}
 	}
 
@@ -177,63 +213,147 @@ public class SIFTClient {
 	 * @throws Exception
 	 */
 	private static void checkFiles() throws Exception {
-		File[] tempServerSide;
+		//File[] tempServerSide;
 		File[] tempClientSide;
 		for (String a : myDirectories) {
-			try {
-				tempServerSide = server.getAll(a, userID);
-				System.out.println("Server: " + tempServerSide.length);
-				File f = new File(myPath + "/" + a);
-				tempClientSide = f.listFiles();
+			System.out.println("CHECKING FILES ON: "+a);
+			File f = new File(myPath + "/" + a);
+			tempClientSide = f.listFiles();
+			
+			// Go Fetch the files from the server
+			byte[] reply = fetchFilesFromServer(a);
+			if (reply != null) {
+				ByteArrayInputStream in = new ByteArrayInputStream(reply);
+				DataInputStream dis = new DataInputStream(in);
+				System.out.println("Starting to read reply");
+				
+				int size = dis.readInt();
+				int count = 0;
+				File[] tempServerSide = new File[size];
+				System.out.println("Number of files in: "+a+"equals on server: "+size+" and on client: "+tempClientSide.length);
+				System.out.println("Number of files in: "+a+ " equals: "+size);
+				
+				for (int i = 0; i < size; i++) {
+					String name = dis.readUTF();
+					long fileSize = dis.readLong();
+					System.out.println("File: "+name);
+					System.out.println("File size: "+fileSize);
+					byte[] data = new byte[(int) fileSize];
+					int countData = 0;
 
-				System.out.println("CLient: " + tempClientSide.length);
-				File serverFile;
-				File clientFile;
-				if (tempServerSide.length > tempClientSide.length) {
-					for (int i = 0; i < tempServerSide.length; i++) {
-						boolean found = false;
-						serverFile = tempServerSide[i];
-						for (int j = 0; j < tempClientSide.length && !found; j++) {
-							clientFile = tempClientSide[j];
-							if (clientFile.getName().equalsIgnoreCase(serverFile.getName())) {
-								found = true;
-								if (clientFile.lastModified() > serverFile.lastModified()) {
-									server.put(a, clientFile, userID);
-								} else if (clientFile.lastModified() < serverFile.lastModified()) {
-									createFileClient(a, serverFile);
-								}
-							}
-						}
-						if (!found) {
-							System.out.println("NOT FOUND ON CLIENT");
+					for (int j = 0; j < (int) fileSize; j++) {
+						data[countData] = dis.readByte();
+						countData++;
+					}
+					File file = new File(name);
+					FileOutputStream fileOutputStream = new FileOutputStream(file);
+					fileOutputStream.write(data);
+					fileOutputStream.close();
+
+					tempServerSide[count] = file;
+					count++;
+				}
+				compareFilesWithDatesAndUploadOrDownload(tempServerSide, tempClientSide, a);
+				
+			}
+		}
+	}
+
+	private static void compareFilesWithDatesAndUploadOrDownload(File[] tempServerSide, File[] tempClientSide,
+			String a) throws IOException {
+		File serverFile;
+		File clientFile;
+		
+		if (tempServerSide.length > tempClientSide.length) {
+			for (int i = 0; i < tempServerSide.length; i++) {
+				boolean found = false;
+				serverFile = tempServerSide[i];
+				for (int j = 0; j < tempClientSide.length && !found; j++) {
+					clientFile = tempClientSide[j];
+					if (clientFile.getName().equalsIgnoreCase(serverFile.getName())) {
+						found = true;
+						System.out.println("File: "+clientFile.getName()+" SERVER: "+ serverFile.lastModified()+"CLIENT: "+clientFile.lastModified());
+						if (clientFile.lastModified() > serverFile.lastModified()) {
+							// server.put(a, clientFile, userID);
+							createFileServer(a, clientFile, userID);
+						}else if (clientFile.lastModified() < serverFile.lastModified()) {
 							createFileClient(a, serverFile);
 						}
 					}
-				} else {
-					for (int i = 0; i < tempClientSide.length; i++) {
-						boolean found = false;
-						clientFile = tempClientSide[i];
-						for (int j = 0; j < tempServerSide.length && !found; j++) {
-							serverFile = tempServerSide[j];
-							if (clientFile.getName().equalsIgnoreCase(serverFile.getName())) {
-								found = true;
-								if (clientFile.lastModified() > serverFile.lastModified()) {
-									server.put(a, clientFile, userID);
-								} else if (clientFile.lastModified() < serverFile.lastModified()) {
-									createFileClient(a, serverFile);
-								}
-							}
-						}
-						if (!found) {
-							System.out.println("NOT FOUND ON SERVER");
-							server.put(a, clientFile, userID);
+					if (!found) {
+						System.out.println("NOT FOUND CREATING ON CLIENT: "+a+" "+serverFile.getName());
+						createFileClient(a, serverFile);
+					}
+				}
+			}
+		}else {
+			for (int i = 0; i < tempClientSide.length; i++) {
+				boolean found = false;
+				clientFile = tempClientSide[i];
+				for (int j = 0; j < tempServerSide.length && !found; j++) {
+					serverFile = tempServerSide[j];
+					if (clientFile.getName().equalsIgnoreCase(serverFile.getName())) {
+						found = true;
+						System.out.println("File: "+clientFile.getName()+" SERVER: "+ serverFile.lastModified()+"CLIENT: "+clientFile.lastModified());
+						if (clientFile.lastModified() > serverFile.lastModified()) {
+							createFileServer(a, clientFile, userID);
+						} else if (clientFile.lastModified() < serverFile.lastModified()) {
+							createFileClient(a, serverFile);
 						}
 					}
 				}
-			} catch (RemoteException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+				if (!found) {
+					System.out.println("NOT FOUND CREATING ON CLIENT: "+a+" "+clientFile.getName());
+					createFileServer(a, clientFile, userID);
+				}
 			}
+		}
+		
+	}
+
+	private static void createFileServer(String a, File clientFile, int userID) {
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		DataOutputStream dos = new DataOutputStream(out);
+		
+		try {
+			dos.writeInt(RequestType.PUT);
+			dos.writeInt(userID);
+			dos.writeUTF(a);
+			dos.writeUTF(clientFile.getName());
+			dos.writeLong(clientFile.length());
+			dos.writeLong(clientFile.lastModified());
+			
+			byte[] file = new byte[(int) clientFile.length()];
+			FileInputStream fileinput = new FileInputStream(clientFile);
+			fileinput.read(file);
+			fileinput.close();
+
+			dos.write(file);
+			byte[] request = out.toByteArray();
+			server.put(request, username);
+			
+		} catch (IOException e) {
+			System.out.println("Problems creating file on server.");
+		}
+	}
+
+	private static byte[] fetchFilesFromServer(String a) {
+		System.out.println("Fetching Files From Server");
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		DataOutputStream dos = new DataOutputStream(out);
+		try{
+			dos.writeInt(RequestType.GET_ALL);
+			dos.writeUTF(a);
+			dos.writeInt(userID);
+			byte[] request = out.toByteArray();
+			byte[] reply = server.fetchFilesFromServer(request, username);
+			System.out.println(reply);
+			System.out.println("DONE Fetching Files From Server");	
+			return reply;
+			
+		}catch (IOException e) {
+			System.out.println("ERROR Fetching Files From Server");
+			return null;
 		}
 	}
 

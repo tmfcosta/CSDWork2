@@ -19,6 +19,8 @@ import java.util.Map;
 import javax.rmi.ssl.SslRMIClientSocketFactory;
 import javax.rmi.ssl.SslRMIServerSocketFactory;
 
+import bftsmart.tom.ServiceProxy;
+
 
 public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 	/**
@@ -32,10 +34,12 @@ public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 	private static Map<String, String> passwords;
 	private static Map<String, BigInteger> challenges;
 	private static SecureRandom random;	
+	
+	private static Map<String, ServiceProxy> clientsConnections;
+	private int numUsers = 1;
 
 	protected SIFTBoxProxyRMI() throws RemoteException {
 		super(9000, new SslRMIClientSocketFactory(), new SslRMIServerSocketFactory());
-
 	}
 
 	
@@ -81,38 +85,14 @@ public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 	}
 
 	@Override
-	public void put(String directory, File value, String clientId) throws RemoteException, Exception {
-		// TODO Auto-generated method stub
-		
+	public void put(byte[] request, String username) throws RemoteException{
+		ServiceProxy cp = clientsConnections.get(username);
+		System.out.println("Invoking create file on server.");
+		cp.invokeOrdered(request);
 	}
 
 	@Override
-	public File get(String directory, String name, String clientId) throws RemoteException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public File[] getAll(String directory, String clientId) throws RemoteException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public void putDirectory(String directory, String clientId) throws RemoteException {
-		// TODO Auto-generated method stub
-		
-	}
-
-	@Override
-	public void delete(String directory, String name, String clientId) throws RemoteException {
-		// TODO Auto-generated method stub
-		
-	}
-
-
-	@Override
-	public boolean authenticate(String username, BigInteger digestClient) throws RemoteException {
+	public boolean authenticate(String username, BigInteger digestClient, String userId) throws RemoteException {
 		
 		if(!passwords.containsKey(username)){
 			//throw new RemoteException("Unknow user trying to authenticate.");
@@ -134,6 +114,7 @@ public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 			
 			if(digestClient.equals(digestServer)){
 				System.out.println("Authentication suceeded for user: "+username );
+				newClientConnection(userId);
 				return true;
 			}
 		}catch (NoSuchAlgorithmException e){
@@ -143,6 +124,12 @@ public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 		}
 		System.out.println("An attempt to authenticate failed for user:" + username);
 		return false;
+	}
+
+
+	private void newClientConnection(String username) {
+		clientsConnections.put(username, new ServiceProxy(numUsers));
+		numUsers++;
 	}
 
 
@@ -157,6 +144,20 @@ public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 		BigInteger serverChallenge = new BigInteger(1,bytes);
 		challenges.put(username, serverChallenge);
 		return serverChallenge;
+	}
+
+
+	@Override
+	public void checkDirectoryOnServer(byte[] request, String username) throws RemoteException {
+		ServiceProxy cp = clientsConnections.get(username);
+		cp.invokeOrdered(request);		
+	}
+
+
+	@Override
+	public byte[] fetchFilesFromServer(byte[] request, String username) {
+		ServiceProxy cp = clientsConnections.get(username);
+		return cp.invokeOrdered(request);
 	}
 
 }

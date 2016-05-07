@@ -202,6 +202,7 @@ public class SIFTBoxClient {
 						} else if (clientFile.lastModified() < serverFile.lastModified()) {
 							createFileClient(a, serverFile);
 						}
+						//PAREI AQUI
 					}
 					if (!found) {
 						System.out.println("NOT FOUND CREATING ON CLIENT: "+a+" "+serverFile.getName());
