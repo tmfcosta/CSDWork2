@@ -1,13 +1,15 @@
 package bftsmart.demo.csdwork2;
 
 import java.io.BufferedInputStream;
+import java.io.Console;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.rmi.Naming;
 import java.rmi.RemoteException;
+import java.security.MessageDigest;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -48,29 +50,68 @@ public class SIFTClient {
 	 * 
 	 */
 	public static void main(String[] args) {
-		if ((args.length < 6) || (!args[0].equalsIgnoreCase("-u")) || (!args[2].equalsIgnoreCase("-a"))
-				|| (!args[4].equalsIgnoreCase("-s"))) {
+		
+		MessageDigest digest;
+		
+		if ((args.length < 8) || (!args[0].equalsIgnoreCase("-u")) || (!args[2].equalsIgnoreCase("-a"))
+				|| (!args[4].equalsIgnoreCase("-s") || (!args[6].equalsIgnoreCase("-user")))) {
 			System.out.println(args.length);
 			System.out.println(args[0]);
 			System.out.println(args[2]);
 			System.out.println(args[4]);
-			System.out.println("Use: java SIFTClient -u <userId> -a <serverAddress:port> -s <list of dirs>");
+			System.out.println(args[6]);
+			System.out.println("Use: java SIFTClient -u <userId> -a <serverAddress:port> -s <list of dirs> -user <username>");
 			System.exit(0);
 		}
 
 		userID = args[1];
 		String serverHost = args[3];
 		allPath = args[5];
-
+		String username = args[7];
+		
 		System.out.println(userID);
 		System.out.println(serverHost);
 		System.out.println(allPath);
+		System.out.println(username);
+		
+		Console console = System.console();
+		if(console == null){
+			System.out.println("Couldn't get Console instance");
+			System.exit(0);
+		}
+		console.printf("Testing password%n");
+		char passwordArray[] = console.readPassword("Enter your secret password: ");
+		String password = new String(passwordArray);
 
 		try {
 			System.setProperty("javax.net.ssl.trustStore", "client.ks");
 			System.setProperty("javax.net.ssl.trustStorePassword", "123456");
 
 			server = (IServer) Naming.lookup("//" + serverHost + "/siftBoxServer");
+			
+			//Check the authentication
+			for(int i=0; i<3; i++){
+				digest = java.security.MessageDigest.getInstance("SHA-256");
+				digest.reset();
+				digest.update(server.challenge(username).toByteArray());
+				digest.update(password.getBytes("UTF-16"));
+				BigInteger digestClient = new BigInteger(1,digest.digest());
+				
+				boolean isAuth = server.authenticate(username, digestClient);
+				
+				if(isAuth){
+					System.out.println("Logged in sucessfully");
+					break;
+				}
+				else if(!isAuth && i<2){
+					System.out.println("Your username or password is wrong... you have "+ (2-i) + " attemps");
+				}
+				else {
+					System.out.println("You failed to authenticate");
+					System.exit(0);
+				}
+			}			
+			
 			Timer timer = new Timer();
 
 			// split the directories path
