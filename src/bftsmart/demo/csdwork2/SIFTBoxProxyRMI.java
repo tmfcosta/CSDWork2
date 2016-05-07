@@ -13,6 +13,7 @@ import java.rmi.server.UnicastRemoteObject;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.HashMap;
 import java.util.Map;
 
 import javax.rmi.ssl.SslRMIClientSocketFactory;
@@ -44,6 +45,10 @@ public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 			System.setProperty("javax.net.ssl.keyStore", "server.ks");
 			System.setProperty("javax.net.ssl.keyStorePassword", "123456");
 
+			random = new SecureRandom();
+			passwords = new HashMap<String, String>();
+			challenges = new HashMap<String, BigInteger>();
+			
 			//some data to the passwords (adding some clients)
 			passwords.put("Tiago", "ola");
 			passwords.put("Luis","adeus");
@@ -56,7 +61,7 @@ public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 			}
 
 			Naming.rebind("/siftBoxServer", new SIFTBoxProxyRMI());
-			readConfigFile();
+			//readConfigFile();
 			System.out.println("SIFTBox server secure RMI bound in registry");
 		} catch (Throwable th) {
 			th.printStackTrace();
@@ -110,10 +115,12 @@ public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 	public boolean authenticate(String username, BigInteger digestClient) throws RemoteException {
 		
 		if(!passwords.containsKey(username)){
-			throw new RemoteException("Unknow user trying to authenticate.");
+			//throw new RemoteException("Unknow user trying to authenticate.");
+			return false;
 		}
 		if(challenges.get(username) == null){
-			throw new RemoteException("Unable to authenticate "+username+". Missing authentication challenge.");
+			//throw new RemoteException("Unable to authenticate "+username+". Missing authentication challenge.");
+			return false;
 		}
 		
 		try{
@@ -127,8 +134,8 @@ public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 			
 			if(digestClient.equals(digestServer)){
 				System.out.println("Authentication suceeded for user: "+username );
+				return true;
 			}
-			return true;
 		}catch (NoSuchAlgorithmException e){
 			e.printStackTrace();
 		}catch(UnsupportedEncodingException e){

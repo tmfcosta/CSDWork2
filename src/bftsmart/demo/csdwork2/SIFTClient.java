@@ -79,9 +79,9 @@ public class SIFTClient {
 			System.out.println("Couldn't get Console instance");
 			System.exit(0);
 		}
-		console.printf("Testing password%n");
 		char passwordArray[] = console.readPassword("Enter your secret password: ");
 		String password = new String(passwordArray);
+		console.printf("Password entered was: %s%n", password);
 
 		try {
 			System.setProperty("javax.net.ssl.trustStore", "client.ks");
@@ -97,7 +97,8 @@ public class SIFTClient {
 				digest.update(password.getBytes("UTF-16"));
 				BigInteger digestClient = new BigInteger(1,digest.digest());
 				
-				boolean isAuth = server.authenticate(username, digestClient);
+				boolean isAuth = false;
+				isAuth = server.authenticate(username, digestClient);
 				
 				if(isAuth){
 					System.out.println("Logged in sucessfully");
@@ -105,6 +106,12 @@ public class SIFTClient {
 				}
 				else if(!isAuth && i<2){
 					System.out.println("Your username or password is wrong... you have "+ (2-i) + " attemps");
+					console.printf("Username: %n");
+					username = console.readLine();
+					
+					console.printf("Password: %n");
+					char passwordArray2[] = console.readPassword("Enter your secret password: ");
+					password = new String(passwordArray2);
 				}
 				else {
 					System.out.println("You failed to authenticate");
