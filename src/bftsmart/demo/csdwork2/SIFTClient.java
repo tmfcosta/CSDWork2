@@ -10,10 +10,12 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
 import java.rmi.Naming;
 import java.rmi.RemoteException;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -27,6 +29,8 @@ public class SIFTClient {
 	private static String allPath;
 	private static String myPath = "/home/osboxes/SIFTBoxMyClientBox";
 	private static String username;
+	
+	private static BigInteger mySecret;
 
 	/**
 	 * Spliting the dirs
@@ -61,8 +65,6 @@ public class SIFTClient {
 	 */
 	public static void main(String[] args) {
 		
-		MessageDigest digest;
-		
 		if ((args.length < 8) || (!args[0].equalsIgnoreCase("-u")) || (!args[2].equalsIgnoreCase("-a"))
 				|| (!args[4].equalsIgnoreCase("-s") || (!args[6].equalsIgnoreCase("-user")))) {
 			System.out.println(args.length);
@@ -86,50 +88,13 @@ public class SIFTClient {
 		System.out.println(allPath);
 		System.out.println(username);
 		
-		Console console = System.console();
-		if(console == null){
-			System.out.println("Couldn't get Console instance");
-			System.exit(0);
-		}
-		char passwordArray[] = console.readPassword("Enter your secret password: ");
-		String password = new String(passwordArray);
-		console.printf("Password entered was: %s%n", password);
 
 		try {
 			System.setProperty("javax.net.ssl.trustStore", "client.ks");
 			System.setProperty("javax.net.ssl.trustStorePassword", "123456");
 
 			server = (IServer) Naming.lookup("//" + serverHost + "/siftBoxServer");
-			
-			//Check the authentication
-			for(int i=0; i<3; i++){
-				digest = java.security.MessageDigest.getInstance("SHA-256");
-				digest.reset();
-				digest.update(server.challenge(username).toByteArray());
-				digest.update(password.getBytes("UTF-16"));
-				BigInteger digestClient = new BigInteger(1,digest.digest());
-				
-				boolean isAuth = false;
-				isAuth = server.authenticate(username, digestClient, username);
-				
-				if(isAuth){
-					System.out.println("Logged in sucessfully");
-					break;
-				}
-				else if(!isAuth && i<2){
-					System.out.println("Your username or password is wrong... you have "+ (2-i) + " attemps");
-					console.printf("Username: %n");
-					username = console.readLine();
-					
-					console.printf("Password: %n");
-					char passwordArray2[] = console.readPassword("Enter your secret password: ");
-					password = new String(passwordArray2);
-				}
-				else {
-					System.out.println("You failed to authenticate");
-					System.exit(0);
-				}
-			}			
+			authenticate(username);
 			
 			Timer timer = new Timer();
 
@@ -164,6 +129,60 @@ public class SIFTClient {
 			System.err.println("Erro: " + e.getMessage());
 		}
 	}
+	
+	/**
+	 * Authenticate
+	 * @throws NoSuchAlgorithmException 
+	 * @throws RemoteException 
+	 * @throws UnsupportedEncodingException 
+	 */
+	private static void authenticate(String username){
+		MessageDigest digest;
+		Console console = System.console();
+		if(console == null){
+			System.out.println("Couldn't get Console instance");
+			System.exit(0);
+		}
+		char passwordArray[] = console.readPassword("Enter your secret password: ");
+		String password = new String(passwordArray);
+		console.printf("Password entered was: %s%n", password);
+		
+		try{
+		//Check the authentication
+		for(int i=0; i<3; i++){
+			digest = java.security.MessageDigest.getInstance("SHA-256");
+			digest.reset();
+			mySecret = server.challenge(username);
+			digest.update(mySecret.toByteArray());
+			digest.update(password.getBytes("UTF-16"));
+			BigInteger digestClient = new BigInteger(1,digest.digest());
+			
+			boolean isAuth = false;
+			isAuth = server.authenticate(username, digestClient, username);
+			
+			if(isAuth){
+				System.out.println("Logged in sucessfully");
+				break;
+			}
+			else if(!isAuth && i<2){
+				System.out.println("Your username or password is wrong... you have "+ (2-i) + " attemps");
+				console.printf("Username: %n");
+				username = console.readLine();
+				
+				console.printf("Password: %n");
+				char passwordArray2[] = console.readPassword("Enter your secret password: ");
+				password = new String(passwordArray2);
+			}
+			else {
+				System.out.println("You failed to authenticate");
+				System.exit(0);
+			}
+		}
+		}catch(Exception e){
+			
+		}
+
+	}
 
 	/**
 	 * Check to see if it has all the directories passed as arguments
@@ -171,6 +190,9 @@ public class SIFTClient {
 	 * @throws RemoteException
 	 */
 	private static void checkDirectories() throws RemoteException {
+		if(!server.isAuthenticated(username)){
+			authenticate(username);
+		}
 		for (String a : myDirectories) {
 			File f = new File(myPath + "/" + a);
 			if (!f.exists() || !f.isDirectory()) {
@@ -184,8 +206,12 @@ public class SIFTClient {
 	/**
 	 * Check the directory on the ServerSide, if it doesnt exist it create it
 	 * @param dir
+	 * @throws RemoteException 
 	 */
-	private static void checkDirectoryOnServer(String dir) {
+	private static void checkDirectoryOnServer(String dir) throws RemoteException {
+		if(!server.isAuthenticated(username)){
+			authenticate(username);
+		}
 		try {
 			ByteArrayOutputStream out = new ByteArrayOutputStream();
 			DataOutputStream dos = new DataOutputStream(out);
@@ -194,7 +220,7 @@ public class SIFTClient {
 			dos.writeUTF(dir);
 			dos.writeInt(userID);
 			byte[] request = out.toByteArray();
-			server.checkDirectoryOnServer(request, username);
+			server.checkDirectoryOnServer(request, username, mySecret);
 			System.out.println("Directory Created or Checked on Server: "+ dir);
 			// MAYBE DEPOIS METER AQUI UMA ANSWER
 
@@ -213,6 +239,10 @@ public class SIFTClient {
 	 * @throws Exception
 	 */
 	private static void checkFiles() throws Exception {
+		
+		if(!server.isAuthenticated(username)){
+			authenticate(username);
+		}
 		//File[] tempServerSide;
 		File[] tempClientSide;
 		for (String a : myDirectories) {
@@ -260,7 +290,7 @@ public class SIFTClient {
 	}
 
 	private static void compareFilesWithDatesAndUploadOrDownload(File[] tempServerSide, File[] tempClientSide,
-			String a) throws IOException {
+			String a) throws IOException {		
 		File serverFile;
 		File clientFile;
 		
@@ -346,7 +376,7 @@ public class SIFTClient {
 			dos.writeUTF(a);
 			dos.writeInt(userID);
 			byte[] request = out.toByteArray();
-			byte[] reply = server.fetchFilesFromServer(request, username);
+			byte[] reply = server.fetchFilesFromServer(request, username, mySecret);
 			System.out.println(reply);
 			System.out.println("DONE Fetching Files From Server");	
 			return reply;

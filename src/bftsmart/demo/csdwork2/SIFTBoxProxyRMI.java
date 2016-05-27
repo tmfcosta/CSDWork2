@@ -15,6 +15,8 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
 
 import javax.rmi.ssl.SslRMIClientSocketFactory;
 import javax.rmi.ssl.SslRMIServerSocketFactory;
@@ -52,6 +54,7 @@ public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 			random = new SecureRandom();
 			passwords = new HashMap<String, String>();
 			challenges = new HashMap<String, BigInteger>();
+			clientsConnections = new HashMap<String, ServiceProxy>();
 			
 			//some data to the passwords (adding some clients)
 			passwords.put("Tiago", "ola");
@@ -65,6 +68,23 @@ public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 			}
 
 			Naming.rebind("/siftBoxServer", new SIFTBoxProxyRMI());
+			
+			Timer timer = new Timer();
+			
+			TimerTask myTask = new TimerTask() {
+				public void run() {
+					// DO THE CHECKINGS OF FILES AND SYNCHRONIZE
+					try {
+						resetAuthentications();
+						System.out.println("DONE Checking files");
+					} catch (Exception e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}
+			};
+			timer.schedule(myTask, 2000, 10*60000);
+			
 			//readConfigFile();
 			System.out.println("SIFTBox server secure RMI bound in registry");
 		} catch (Throwable th) {
@@ -72,6 +92,11 @@ public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 		}
 	}
 	
+	private static void resetAuthentications() {
+		clientsConnections = new HashMap<String, ServiceProxy>();
+	}
+
+
 	/**
 	 * Read the configuration file rootPath- path of the files myAddress -
 	 * server address (not used)
@@ -148,16 +173,26 @@ public class SIFTBoxProxyRMI extends UnicastRemoteObject implements IServer{
 
 
 	@Override
-	public void checkDirectoryOnServer(byte[] request, String username) throws RemoteException {
-		ServiceProxy cp = clientsConnections.get(username);
-		cp.invokeOrdered(request);		
+	public void checkDirectoryOnServer(byte[] request, String username, BigInteger clientSecret) throws RemoteException {
+		if(challenges.get(username).equals(clientSecret)){
+			ServiceProxy cp = clientsConnections.get(username);
+			cp.invokeOrdered(request);	
+		}
 	}
 
 
 	@Override
-	public byte[] fetchFilesFromServer(byte[] request, String username) {
-		ServiceProxy cp = clientsConnections.get(username);
-		return cp.invokeOrdered(request);
+	public byte[] fetchFilesFromServer(byte[] request, String username, BigInteger clientSecret) {
+		byte[] tmp = null;
+		if(challenges.get(username).equals(clientSecret)){
+			ServiceProxy cp = clientsConnections.get(username);
+			tmp = cp.invokeOrdered(request);
+		}
+		return tmp;
+	}
+	
+	public boolean isAuthenticated(String username){
+		return clientsConnections.containsKey(username);
 	}
 
 }
