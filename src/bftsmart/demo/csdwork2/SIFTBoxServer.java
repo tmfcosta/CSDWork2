@@ -31,13 +31,16 @@ public class SIFTBoxServer extends DefaultRecoverable {
 
 	Map<String, File> fileSystem;
 	private static String rootPath;
+	ServiceReplica rp;
 
 	public SIFTBoxServer(int serverId, String path) {
 		fileSystem = new TreeMap<>();
 		rootPath = path;
 		System.out.println("Server " + serverId + " started!");
-		new ServiceReplica(serverId, this, this);
+		ServiceReplica rp= new ServiceReplica(serverId, this, this);
 	}
+	
+	public SIFTBoxServer(){	}
 
 	/**
 	 * HOW TO RUN: java bftsmart.demo.csdwork.SIFTBox serverId- id of the server
